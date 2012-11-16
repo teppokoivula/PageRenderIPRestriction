@@ -1,0 +1,173 @@
+<?php
+
+/**
+ * Page Render IP Restriction
+ *
+ * This module adds basic IP restriction capabilities for page rendering.
+ * For detailed information, installation instructions etc. see README.md.
+ *
+ * @copyright Copyright (c) 2012, Teppo Koivula 
+ *
+ * ProcessWire 2.x 
+ * Copyright (C) 2012 by Ryan Cramer 
+ * Licensed under GNU/GPL v2, see LICENSE.TXT
+ * 
+ * http://www.processwire.com
+ *
+ */
+
+class PageRenderIPRestriction extends WireData implements Module, ConfigurableModule {
+
+    /**
+     * Return information about this module (required)
+     *
+     * @return array
+     */
+    public static function getModuleInfo() {
+        return array(
+            // The module's title
+            'title' => 'Page Render IP Restriction',
+            // version: major, minor, revision, i.e. 100 = 1.0.0
+            'version' => 50,
+            // summary is brief description of what this module is
+            'summary' => 'Basic IP restriction for page rendering.',
+            // Optional URL to more information about the module
+            'href' => 'https://github.com/teppokoivula/PageRenderIPRestriction',
+            // singular=true: indicates that only one instance of the module is allowed.
+            // This is usually what you want for modules that attach hooks. 
+            'singular' => true,
+            // autoload=true: indicates the module should be started with ProcessWire.
+            // This is necessary for any modules that attach runtime hooks, otherwise those
+            // hooks won't get attached unless some other code calls the module on it's own.
+            // Note that autoload modules are almost always also 'singular' (seen above).
+            'autoload' => true
+        );
+    }
+    
+    /**
+     * Module configuration
+     *
+     * @param array $data
+     * @return InputfieldWrapper
+     */
+    static public function getModuleConfigInputfields(array $data) {
+
+        // this is a container for fields, basically like a fieldset
+        $fields = new InputfieldWrapper();
+
+        // since this is a static function, we can't use $this->modules, so get them from the global wire() function
+        $modules = wire('modules');
+
+        // allowed IPs
+        $field = $modules->get("InputfieldTextarea");
+        $field->name = "allowed_ips";
+        $field->label = "Allowed IPs";
+        $field->description = "Each address on it's own line.";
+        $field->value = isset($data['allowed_ips']) ? $data['allowed_ips'] : null;
+        $field->notes = "Supported formats: 127.0.0.1 (individual IPs), 127.0.0.1-127.0.0.255 (IP ranges) and 127.0.0.0/24 (CIDR)";
+        $field->rows = 10;
+        $fields->add($field);
+
+        // message to show when denying access
+        $field = $modules->get("InputfieldTextarea");
+        $field->name = "access_denied_message";
+        $field->label = "Access denied message";
+        $field->description = "What message should users get when they're being denied access?";
+        $field->notes = "Leave blank to show no message. HTML markup is supported.";
+        $field->value = isset($data['access_denied_message']) ? $data['access_denied_message'] : null;
+        $fields->add($field);
+
+        // action to take when access is denied
+        $field = $modules->get("InputfieldSelect");
+        $field->name = "access_denied_action";
+        $field->label = "Access denied action";
+        $field->description = "What should happen when user is denied access?";
+        $field->notes = "Option \"Redirect user to login page\" has no effect if admin access is also restricted.";
+        $field->addOptions(array(
+                'exit_with_message' => 'Exit with specified message',
+                'redirect_to_admin' => 'Redirect user to login page'
+            ));
+        $fields->add($field);
+
+        // should admin pages be accessible even from outside valid IPs?
+        $field = $modules->get("InputfieldCheckbox");
+        $field->name = "restrict_admin_access";
+        $field->label = "Restrict admin access";
+        $field->description = "If you check this box, admin pages will only be available for users with valid IPs.";
+        if (isset($data['restrict_admin_access']) && $data['restrict_admin_access']) $field->checked = true;
+        $fields->add($field);
+
+        // should IP restriction apply to logged in users?
+        $field = $modules->get("InputfieldCheckbox");
+        $field->name = "restrict_authenticated_users_access";
+        $field->label = "Restrict access for authenticated users";
+        $field->description = "If you check this box, IP restriction will also apply to authenticated (logged in) users.";
+        if (isset($data['restrict_authenticated_users_access']) && $data['restrict_authenticated_users_access']) $field->checked = true;
+        $fields->add($field);
+
+        return $fields;
+    }
+
+    /**
+     * Initialize the module
+     *
+     * ProcessWire calls this when the module is loaded. For 'autoload' modules, this will be called
+     * when ProcessWire's API is ready. As a result, this is a good place to attach hooks. 
+     *
+     */
+    public function init() {
+        // add a hook before each page is rendered and check IP
+        if ($this->allowed_ips) $this->addHookBefore('Page::render', $this, 'beforeRender'); 
+    }
+
+    /**
+     * beforeRender hooks into every page before it's rendered and checks if users IP is valid
+     *
+     * @param HookEvent $event
+     */
+    public function beforeRender(HookEvent $event) {
+
+        // should admin pages be accessible even from outside valid IPs?
+        if (!$this->restrict_admin_access && $event->object->template == 'admin') return;
+
+        // should IP restriction apply to logged in users?
+        if (!$this->restrict_authenticated_users_access && $this->user->isLoggedIn()) return;
+
+        $ip = ip2long($_SERVER['REMOTE_ADDR']);
+        $allowed_ips = explode("\r\n", $this->allowed_ips);
+
+        foreach ($allowed_ips as $allowed_ip) {
+            if (strpos($allowed_ip, "-")) {
+                // IP range
+                list($f, $l) = explode("-", $allowed_ip);
+                $f = ip2long($f);
+                $l = ip2long($l);
+                for ($i = $f; $i<$l+1; ++$i) {
+                    if ($ip == $i) return;
+                }
+            } else {
+                // single IP or CIDR format
+                $cidr = 32;
+                if (strpos($allowed_ip, "/")) {
+                    list($allowed_ip, $cidr) = explode("/", $allowed_ip);
+                    if (!isset($cidr) || $cidr < 1 || $cidr > 32) $cidr = 32;
+                }
+                // accept only valid IPv4 addresses
+                if (filter_var($allowed_ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                    if ($cidr == 32 && $ip == ip2long($allowed_ip)) return;
+                    $mask = -1 << (32 - (int) $cidr);
+                    if (($ip & $mask) == ip2long($allowed_ip)) return;
+                }
+            }
+        }
+
+        // access denied, take appropriate action
+        if (!isset($this->access_denied_action) || $this->access_denied_action == "exit_with_message") {
+            die(isset($this->access_denied_message) ? $this->access_denied_message : "");
+        } else if ($this->access_denied_action == "redirect_to_admin" && !$this->restrict_admin_access) {
+            $this->session->redirect($this->wire->config->urls->admin);
+        }
+
+    }
+
+}
