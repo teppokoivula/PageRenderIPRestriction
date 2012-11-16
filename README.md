@@ -2,11 +2,13 @@ Page Render IP Restriction Module
 =================================
 
 This module adds basic IP restriction capabilities to page rendering. Please note
-that this module is only meant to be used as an additional security measure, not
-on it's own. This is very important especially if protected content is valuable
-and/or sensitive. In those cases it'd also be a much better idea to add all IP
-restriction rules within (software or hardware) firewall instead of relying on
-a module.
+that this is only meant to be used as an additional security measure in addition
+to typical username/password authentication or something similar, not on it's
+own.
+
+This is very important especially if protected content is valuable and/or sensitive.
+In those cases it would also be a much better idea to add all IP restriction rules
+within (software or hardware) firewall instead of relying on a module.
 
 ## Installing
 
