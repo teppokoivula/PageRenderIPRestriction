@@ -25,22 +25,29 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
      */
     public static function getModuleInfo() {
         return array(
+
             // The module's title
             'title' => 'Page Render IP Restriction',
+
             // version: major, minor, revision, i.e. 100 = 1.0.0
             'version' => 50,
+
             // summary is brief description of what this module is
             'summary' => 'Basic IP restriction for page rendering.',
+
             // Optional URL to more information about the module
             'href' => 'https://github.com/teppokoivula/PageRenderIPRestriction',
+
             // singular=true: indicates that only one instance of the module is allowed.
             // This is usually what you want for modules that attach hooks. 
             'singular' => true,
+
             // autoload=true: indicates the module should be started with ProcessWire.
             // This is necessary for any modules that attach runtime hooks, otherwise those
             // hooks won't get attached unless some other code calls the module on it's own.
             // Note that autoload modules are almost always also 'singular' (seen above).
             'autoload' => true
+
         );
     }
     
@@ -106,6 +113,7 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
         $fields->add($field);
 
         return $fields;
+
     }
 
     /**
@@ -116,8 +124,10 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
      *
      */
     public function init() {
-        // add a hook before each page is rendered and check IP
+
+        // add a hook before each page render to check if IP restrictions apply
         if ($this->allowed_ips) $this->addHookBefore('Page::render', $this, 'beforeRender'); 
+
     }
 
     /**
@@ -133,9 +143,12 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
         // should IP restriction apply to logged in users?
         if (!$this->restrict_authenticated_users_access && $this->user->isLoggedIn()) return;
 
+        // convert current IP to long and grab allowed IPs
         $ip = ip2long($_SERVER['REMOTE_ADDR']);
         $allowed_ips = explode("\r\n", $this->allowed_ips);
 
+        // loop through each allowed IP / range / CIDR until a match to current IP
+        // is found. if no matches are found page rendering won't occur.
         foreach ($allowed_ips as $allowed_ip) {
             if (strpos($allowed_ip, "-")) {
                 // IP range
