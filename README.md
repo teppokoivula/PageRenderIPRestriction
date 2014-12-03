@@ -45,7 +45,7 @@ without valid IP_.
 * What should happen when user is denied access?
 * Possible values: "Exit with specified message" or "Redirect user to login page",
   but latter option has no effect if admin access is also restricted
-* Default: "Exit with specified message"
+* Default: null (send HTTP/1.1 403 Forbidden header + no message)
 
 **Restrict admin access**
 
