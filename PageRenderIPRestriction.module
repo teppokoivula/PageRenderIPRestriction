@@ -30,7 +30,7 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
             'title' => 'Page Render IP Restriction',
 
             // version: major, minor, revision, i.e. 100 = 1.0.0
-            'version' => 61,
+            'version' => 62,
 
             // summary is brief description of what this module is
             'summary' => 'Basic IP restriction for page rendering.',
@@ -145,7 +145,7 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
         if (!$this->restrict_authenticated_users_access && $this->user->isLoggedIn()) return;
 
         // return if current IP is valid (allowed)
-        if ($this->checkIP($this->allowed_ips)) return;
+        if ($this->isValidIP($_SERVER['REMOTE_ADDR'], $this->allowed_ips)) return;
 
         // access denied, take appropriate action
         if ($this->access_denied_action == "redirect_to_admin" && !$this->restrict_admin_access) {
@@ -160,60 +160,59 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
     }
 
     /**
-     * Compare an IP address against a list of valid IP addresses
+     * Validate IP, optionally comparing it against a list of valid IPs
      *
-     * @param array|string $valid_ips All valid IP addresses
-     * @param string|null $ip IP, defaults to current clients IP address
-     * @return bool True if $ip is found from $valid_ips, false otherwise
-     * @throws WireException if invalid IPv4 address is received
+     * @param string $ip IP address (IPv4)
+     * @param array|string|null $valid_ips List of valid IP addresses
+     * @return bool
      * @throws WireException if valid_ips is of invalid type or format
      */
-    protected function checkIP($valid_ips, $ip = null) {
-        // if no IP was given, use one received from PHP; also, convert the
-        // IP address to long (we'll handle addresses in that format later)
-        $ip = $ip ? $ip : $_SERVER['REMOTE_ADDR'];
+    protected function isValidIP($ip, $valid_ips = null) {
+        // validate IP address with PHP's native filter_var function
         if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            throw new WireException("Invalid IPv4 address: $ip");
+            return false;
         }
-        $long = ip2long($ip);
-        // to continue, we need an array of allowed IPs; if a string was given,
-        // explode it from characters not expected in addresses to get an array
-        $type = gettype($valid_ips);
-        if ($type == "string") {
-            $valid_ips = preg_split("/[^0-9\.\-\/]/", $valid_ips, -1, PREG_SPLIT_NO_EMPTY);
-        }
-        if (!is_array($valid_ips) || !count($valid_ips)) {
-            $param = in_array($type, array("array", "string")) ? "invalid $type" : $type;
-            throw new WireException("First argument should be a list of valid IPs (array|string), $param given");
-        }
-        // iterate allowed IPs / ranges / CIDRs until a match is found; return
-        // true on first match, false at the end if no matches were found
-        foreach ($allowed_ips as $allowed_ip) {
-            if (strpos($allowed_ip, "-")) {
-                // IP range
-                list($f, $l) = explode("-", $allowed_ip);
-                $f = ip2long($f);
-                $l = ip2long($l);
-                if ($f > $l) list($f, $l) = array($l, $f);
-                for ($i = $f; $i<$l+1; ++$i) {
-                    if ($long == $i) return true;
-                }
-            } else {
-                // single IP or CIDR format
-                $cidr = 32;
-                if (strpos($allowed_ip, "/")) {
-                    list($allowed_ip, $cidr) = explode("/", $allowed_ip);
-                    if (!isset($cidr) || $cidr < 1 || $cidr > 32) $cidr = 32;
-                }
-                // accept only valid IPv4 addresses
-                if (filter_var($allowed_ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-                    if ($cidr == 32 && $long == ip2long($allowed_ip)) return true;
-                    $mask = -1 << (32 - (int) $cidr);
-                    if (($long & $mask) == ip2long($allowed_ip)) return true;
+        if (empty($valid_ips)) {
+            // IP is valid and list of valid IPs empty (or not provided at all)
+            return true;
+        } else {
+            // to continue, we need an array of valid IPs; if a string was given,
+            // explode it from characters not expected in addresses to get an array
+            if (is_string($valid_ips)) {
+                $valid_ips = preg_split("/[^0-9\.\-\/]/", $valid_ips, -1, PREG_SPLIT_NO_EMPTY);
+            } else if (!is_array($valid_ips)) {
+                throw new WireException("Second param should be a list of valid IPs (array|string), " . gettype($valid_ips) . " given");
+            }
+            // iterate valid IPs / ranges / CIDRs until a match is found; return
+            // true on first match, false at the end if no matches were found
+            $long = ip2long($ip);
+            foreach ($valid_ips as $valid_ip) {
+                if (strpos($valid_ip, "-")) {
+                    // IP range
+                    list($f, $l) = explode("-", $valid_ip);
+                    $f = ip2long($f);
+                    $l = ip2long($l);
+                    if ($f > $l) list($f, $l) = array($l, $f);
+                    for ($i = $f; $i<$l+1; ++$i) {
+                        if ($long == $i) return true;
+                    }
+                } else {
+                    // single IP or CIDR format
+                    $cidr = 32;
+                    if (strpos($valid_ip, "/")) {
+                        list($valid_ip, $cidr) = explode("/", $valid_ip);
+                        if (!isset($cidr) || $cidr < 1 || $cidr > 32) $cidr = 32;
+                    }
+                    // accept only valid IPv4 addresses
+                    if (filter_var($valid_ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                        if ($cidr == 32 && $long == ip2long($valid_ip)) return true;
+                        $mask = -1 << (32 - (int) $cidr);
+                        if (($long & $mask) == ip2long($valid_ip)) return true;
+                    }
                 }
             }
+            return false;
         }
-        return false;
     }
 
 }
