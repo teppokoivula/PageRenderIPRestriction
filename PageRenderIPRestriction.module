@@ -19,7 +19,7 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
     public static function getModuleInfo() {
         return array(
             'title' => 'Page Render IP Restriction',
-            'version' => '0.8.0',
+            'version' => '0.8.1',
             'summary' => 'Basic IP restriction for page rendering.',
             'href' => 'https://github.com/teppokoivula/PageRenderIPRestriction',
             'singular' => true,
@@ -94,6 +94,7 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
         $field->name = "allowed_paths";
         $field->label = "Paths excluded from access restriction";
         $field->description = "Access to following paths on the site is always allowed.";
+        $field->notes = "Use relative paths such as /my-url/. You can optionally specify the request method: /my-url/ POST, /my-other-url/ GET, etc.";
         $field->collapsed = 2;
         if (isset($data[$field->name])) $field->value = $data[$field->name];
         $field->rows = 10;
@@ -149,7 +150,10 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
                 },
                 preg_split("/\r\n|\n|\r/", $this->allowed_paths)
             )));
-            if (!empty($allowed_paths) && in_array($_SERVER['REQUEST_URI'], $allowed_paths)) return;
+            if (!empty($allowed_paths)) {
+                if (in_array($_SERVER['REQUEST_URI'], $allowed_paths)) return;
+                if (in_array($_SERVER['REQUEST_URI'] . " " . $_SERVER['REQUEST_METHOD'], $allowed_paths)) return;
+            }
         }
 
         // don't restrict access to always allowed domains

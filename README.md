@@ -61,6 +61,7 @@ without valid IP_.
 **Exceptions to access restriction (allowed paths)**
 
 * With this setting you can define paths that are excluded from access restriction
+* You can optionally specify the request method: /my-allowed-url/ POST
 * Default: null
 
 **Exceptions to access restriction (allowed domains)**
