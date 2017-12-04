@@ -57,3 +57,8 @@ without valid IP_.
 * If you check this box, IP restriction will also apply to authenticated (logged in)
   users.
 * Default: false
+
+**Exceptions to access restriction (allowed paths)**
+
+* With this setting you can define paths that are excluded from access restriction
+* Default: null
