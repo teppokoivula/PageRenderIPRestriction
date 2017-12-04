@@ -19,7 +19,7 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
     public static function getModuleInfo() {
         return array(
             'title' => 'Page Render IP Restriction',
-            'version' => '0.7.0',
+            'version' => '0.7.1',
             'summary' => 'Basic IP restriction for page rendering.',
             'href' => 'https://github.com/teppokoivula/PageRenderIPRestriction',
             'singular' => true,
@@ -131,8 +131,13 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
 
         // don't restrict access to always allowed paths
         if ($this->allowed_paths) {
-            $allowed_paths = explode("\r\n", $this->allowed_paths);
-            if (in_array($_SERVER['REQUEST_URI'], $allowed_paths)) return;
+            $allowed_paths = array_unique(array_filter(array_map(
+                function($item) {
+                    return trim($item);
+                },
+                preg_split("/\r\n|\n|\r/", $this->allowed_paths)
+            )));
+            if (!empty($allowed_paths) && in_array($_SERVER['REQUEST_URI'], $allowed_paths)) return;
         }
 
         // return if current IP is valid (allowed)
