@@ -62,3 +62,8 @@ without valid IP_.
 
 * With this setting you can define paths that are excluded from access restriction
 * Default: null
+
+**Exceptions to access restriction (allowed domains)**
+
+* With this setting you can define domains that are excluded from access restriction
+* Default: null

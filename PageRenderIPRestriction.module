@@ -19,7 +19,7 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
     public static function getModuleInfo() {
         return array(
             'title' => 'Page Render IP Restriction',
-            'version' => '0.7.1',
+            'version' => '0.8.0',
             'summary' => 'Basic IP restriction for page rendering.',
             'href' => 'https://github.com/teppokoivula/PageRenderIPRestriction',
             'singular' => true,
@@ -94,9 +94,21 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
         $field->name = "allowed_paths";
         $field->label = "Paths excluded from access restriction";
         $field->description = "Access to following paths on the site is always allowed.";
+        $field->collapsed = 2;
         if (isset($data[$field->name])) $field->value = $data[$field->name];
         $field->rows = 10;
-        $fields->add($field);        
+        $fields->add($field);
+
+        // exceptions to access restriction (allowed domains)
+        $field = $modules->get("InputfieldTextarea");
+        $field->name = "allowed_domains";
+        $field->label = "Domains excluded from access restriction";
+        $field->description = "Access to following domains is always allowed. As an example, you could use this setting to disable IP restriction while developing the site locally.";
+        $field->notes = "Note that if your site can be accessed with multiple domains, and you include one or more of those here, anyone accessing said domain(s) will be granted access. This may have serious security implications!";
+        $field->collapsed = 2;
+        if (isset($data[$field->name])) $field->value = $data[$field->name];
+        $field->rows = 10;
+        $fields->add($field);
 
         return $fields;
 
@@ -138,6 +150,17 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
                 preg_split("/\r\n|\n|\r/", $this->allowed_paths)
             )));
             if (!empty($allowed_paths) && in_array($_SERVER['REQUEST_URI'], $allowed_paths)) return;
+        }
+
+        // don't restrict access to always allowed domains
+        if ($this->allowed_domains && $this->wire->config->httpHost) {
+            $allowed_domains = array_unique(array_filter(array_map(
+                function($item) {
+                    return trim($item);
+                },
+                preg_split("/\r\n|\n|\r/", $this->allowed_domains)
+            )));
+            if (!empty($allowed_domains) && in_array($this->wire->config->httpHost, $allowed_domains)) return;
         }
 
         // return if current IP is valid (allowed)
