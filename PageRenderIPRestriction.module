@@ -3,10 +3,9 @@
 /**
  * Page Render IP Restriction
  *
- * This module adds basic IP restriction capabilities for page rendering.
- * For more details see README.md.
+ * This module adds basic IP restriction capabilities for page rendering. For more details see README.md.
  *
- * @copyright 2012-2017 Teppo Koivula 
+ * @copyright 2012-2023 Teppo Koivula 
  * @license http://www.gnu.org/licenses/gpl-2.0.txt GNU General Public License, version 2 
  */
 class PageRenderIPRestriction extends WireData implements Module, ConfigurableModule {
@@ -17,14 +16,14 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
      * @return array
      */
     public static function getModuleInfo() {
-        return array(
+        return [
             'title' => 'Page Render IP Restriction',
-            'version' => '0.8.1',
+            'version' => '0.9.0',
             'summary' => 'Basic IP restriction for page rendering.',
             'href' => 'https://github.com/teppokoivula/PageRenderIPRestriction',
             'singular' => true,
             'autoload' => true,
-        );
+        ];
     }
     
     /**
@@ -46,9 +45,28 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
         $field->name = "allowed_ips";
         $field->label = "Allowed IPs";
         $field->description = "Each address on it's own line.";
-        if (isset($data[$field->name])) $field->value = $data[$field->name];
+        $field->value = $data[$field->name] ?? null;
         $field->notes = "Supported formats: 127.0.0.1 (individual IPs), 127.0.0.1-127.0.0.255 (IP ranges) and 127.0.0.0/24 (CIDR)";
         $field->rows = 10;
+        $fields->add($field);
+
+        // blocked IPs
+        $field = $modules->get("InputfieldTextarea");
+        $field->name = "blocked_ips";
+        $field->label = "Blocked IPs";
+        $field->description = "Each address on it's own line.";
+        $field->value = $data[$field->name] ?? null;
+        $field->notes = "Supported formats: 127.0.0.1 (individual IPs), 127.0.0.1-127.0.0.255 (IP ranges) and 127.0.0.0/24 (CIDR)";
+        $field->rows = 10;
+        $fields->add($field);
+
+        // should we trust client headers when checking IP address?
+        $field = $modules->get("InputfieldCheckbox");
+        $field->name = "use_client_ip";
+        $field->label = "Use client headers when checking IP";
+        $field->description = "If you check this box, we will use (and trust) client headers when checking current IP address.";
+        $field->notes = "This option should only be enabled if you know that you need it, e.g. your site is behind a proxy, firewall, etc. that stores real IP address in a separate header.";
+        $field->checked = isset($data[$field->name]) && $data[$field->name];
         $fields->add($field);
 
         // message to show when denying access
@@ -57,7 +75,7 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
         $field->label = "Access denied message";
         $field->description = "What message should users get when they're being denied access?";
         $field->notes = "Leave blank to show no message. HTML markup is supported.";
-        if (isset($data[$field->name])) $field->value = $data[$field->name];
+        $field->value = $data[$field->name] ?? null;
         $fields->add($field);
 
         // action to take when access is denied
@@ -66,11 +84,11 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
         $field->label = "Access denied action";
         $field->description = "What should happen when user is denied access?";
         $field->notes = "Option \"Redirect user to login page\" has no effect if admin access is also restricted.";
-        $field->addOptions(array(
+        $field->addOptions([
             'exit_with_message' => 'Exit with specified message',
             'redirect_to_admin' => 'Redirect user to login page'
-        ));
-        if (isset($data[$field->name])) $field->value = $data[$field->name];
+        ]);
+        $field->value = $data[$field->name] ?? null;
         $fields->add($field);
 
         // should admin pages be accessible even from outside valid IPs?
@@ -96,7 +114,7 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
         $field->description = "Access to following paths on the site is always allowed.";
         $field->notes = "Use relative paths such as /my-url/. You can optionally specify the request method: /my-url/ POST, /my-other-url/ GET, etc.";
         $field->collapsed = 2;
-        if (isset($data[$field->name])) $field->value = $data[$field->name];
+        $field->value = $data[$field->name] ?? null;
         $field->rows = 10;
         $fields->add($field);
 
@@ -107,12 +125,11 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
         $field->description = "Access to following domains is always allowed. As an example, you could use this setting to disable IP restriction while developing the site locally.";
         $field->notes = "Note that if your site can be accessed with multiple domains, and you include one or more of those here, anyone accessing said domain(s) will be granted access. This may have serious security implications!";
         $field->collapsed = 2;
-        if (isset($data[$field->name])) $field->value = $data[$field->name];
+        $field->value = $data[$field->name] ?? null;
         $field->rows = 10;
         $fields->add($field);
 
         return $fields;
-
     }
 
     /**
@@ -125,8 +142,9 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
     public function init() {
 
         // add a hook before each page render to check if IP restrictions apply
-        if ($this->allowed_ips) $this->addHookBefore('Page::render', $this, 'beforeRender'); 
-
+        if ($this->allowed_ips || $this->blocked_ips) {
+            $this->addHookBefore('Page::render', $this, 'beforeRender');
+        }
     }
 
     /**
@@ -167,19 +185,25 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
             if (!empty($allowed_domains) && in_array($this->wire->config->httpHost, $allowed_domains)) return;
         }
 
-        // return if current IP is valid (allowed)
-        if ($this->isValidIP($_SERVER['REMOTE_ADDR'], $this->allowed_ips)) return;
+        $ip = $this->session->getIP(false, (bool) $this->use_client_ip);
+        if ($ip) {
+
+            // return if current IP is valid (allowed)
+            if ($this->allowed_ips && $this->isValidIP($ip, $this->allowed_ips)) return;
+
+            // if blocked IPs are defined, only prevent access in case current IP is within those
+            if ($this->blocked_ips && !$this->isValidIP($ip, $this->blocked_ips)) return;
+        }
 
         // access denied, take appropriate action
         if ($this->access_denied_action == "redirect_to_admin" && !$this->restrict_admin_access) {
-            $this->session->redirect($this->wire->config->urls->admin);
+            $this->session->redirect($this->wire->config->urls->admin, false);
         } else if ($this->access_denied_action == "exit_with_message") {
             exit($this->access_denied_message);
         } else {
             header("HTTP/1.1 403 Forbidden");
             exit;
         }
-
     }
 
     /**
@@ -188,54 +212,58 @@ class PageRenderIPRestriction extends WireData implements Module, ConfigurableMo
      * @param string $ip IP address (IPv4)
      * @param array|string|null $valid_ips List of valid IP addresses
      * @return bool
+     *
      * @throws WireException if valid_ips is of invalid type or format
      */
-    protected function isValidIP($ip, $valid_ips = null) {
+    protected function isValidIP(string $ip, $valid_ips = null) {
+
         // validate IP address with PHP's native filter_var function
-        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            return false;
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return false;
+
+        // if IP is valid and list of valid IPs is empty, always return true
+        if (empty($valid_ips)) return true;
+
+        // to continue, we need an array of valid IPs; if a string was given, explode it from characters not expected in addresses
+        if (is_string($valid_ips)) {
+            $valid_ips = preg_split("/[^0-9\.\-\/]/", $valid_ips, -1, PREG_SPLIT_NO_EMPTY);
         }
-        if (empty($valid_ips)) {
-            // IP is valid and list of valid IPs empty (or not provided at all)
-            return true;
-        } else {
-            // to continue, we need an array of valid IPs; if a string was given,
-            // explode it from characters not expected in addresses to get an array
-            if (is_string($valid_ips)) {
-                $valid_ips = preg_split("/[^0-9\.\-\/]/", $valid_ips, -1, PREG_SPLIT_NO_EMPTY);
-            } else if (!is_array($valid_ips)) {
-                throw new WireException("Second param should be a list of valid IPs (array|string), " . gettype($valid_ips) . " given");
-            }
-            // iterate valid IPs / ranges / CIDRs until a match is found; return
-            // true on first match, false at the end if no matches were found
-            $long = ip2long($ip);
-            foreach ($valid_ips as $valid_ip) {
-                if (strpos($valid_ip, "-")) {
-                    // IP range
-                    list($f, $l) = explode("-", $valid_ip);
-                    $f = ip2long($f);
-                    $l = ip2long($l);
-                    if ($f > $l) list($f, $l) = array($l, $f);
-                    for ($i = $f; $i<$l+1; ++$i) {
-                        if ($long == $i) return true;
-                    }
-                } else {
-                    // single IP or CIDR format
-                    $cidr = 32;
-                    if (strpos($valid_ip, "/")) {
-                        list($valid_ip, $cidr) = explode("/", $valid_ip);
-                        if (!isset($cidr) || $cidr < 1 || $cidr > 32) $cidr = 32;
-                    }
-                    // accept only valid IPv4 addresses
-                    if (filter_var($valid_ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-                        if ($cidr == 32 && $long == ip2long($valid_ip)) return true;
-                        $mask = -1 << (32 - (int) $cidr);
-                        if (($long & $mask) == ip2long($valid_ip)) return true;
-                    }
+
+        if (!is_array($valid_ips)) {
+            throw new WireException("Second param should be a list of valid IPs (array|string), " . gettype($valid_ips) . " given");
+        }
+
+        // iterate valid IPs / ranges / CIDRs until a match is found; return true on first match, false at the end if no matches were found
+        $long = ip2long($ip);
+        foreach ($valid_ips as $valid_ip) {
+
+            // IP range
+            if (strpos($valid_ip, "-")) {
+                list($f, $l) = explode("-", $valid_ip);
+                $f = ip2long($f);
+                $l = ip2long($l);
+                if ($f > $l) list($f, $l) = [$l, $f];
+                for ($i = $f; $i<$l+1; ++$i) {
+                    if ($long == $i) return true;
                 }
+                continue;
             }
-            return false;
+
+            // single IP or CIDR format
+            $cidr = 32;
+            if (strpos($valid_ip, "/")) {
+                list($valid_ip, $cidr) = explode("/", $valid_ip);
+                if (!isset($cidr) || $cidr < 1 || $cidr > 32) $cidr = 32;
+            }
+
+            // accept only valid IPv4 addresses
+            if (filter_var($valid_ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                if ($cidr == 32 && $long == ip2long($valid_ip)) return true;
+                $mask = -1 << (32 - (int) $cidr);
+                if (($long & $mask) == ip2long($valid_ip)) return true;
+            }
         }
+
+        return false;
     }
 
 }

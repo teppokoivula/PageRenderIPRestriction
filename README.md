@@ -24,15 +24,33 @@ one IP address and check both "Restrict admin access" and "Restrict access for
 authenticated users" checkboxes _you will no longer be able to reach Admin
 without valid IP_.
 
+Since module version 0.9.0 it is possible to specifically set a list of blocked IPs.
+If blocked IPs are defined, only users with one of these IP addresses are prevented
+from accessing the site.
+
 ## Settings
 
 **Allowed IPs**
 
 * IP addresses that have access to your site
-* Each address on it's own line
+* Each address on its own line
 * Supported formats: 127.0.0.1 (individual IPs), 127.0.0.1-127.0.0.255 (IP ranges)
   and 127.0.0.0/24 (CIDR)
 * Default: null
+
+**Blocked IPs**
+
+* IP addresses that should not get access to your site
+* Each address on its own line
+* Supported formats: 127.0.0.1 (individual IPs), 127.0.0.1-127.0.0.255 (IP ranges)
+  and 127.0.0.0/24 (CIDR)
+* Default: null
+
+**Use client headers when checking IP**
+
+* Trust client headers when IP address is checked
+* This option may be required in case your site is behind a proxy or firewall
+* Default: false
 
 **Access denied message**
 
